@@ -233,7 +233,7 @@ pub fn create_router(state: SharedBridgeState) -> (axum::Router, SocketIo) {
 
     let app = axum::Router::new()
         .route("/", get(serve_client))
-        .route("/socket.io.min.js", get(serve_socket_io_js))
+        .route("/vendor/socket.io.min.js", get(serve_socket_io_js))
         .layer(layer)
         .layer(CorsLayer::permissive());
 
