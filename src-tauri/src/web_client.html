@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#1f1f1f">
+  <title>PenBridge</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      background-color: #414141;
+      margin: 0;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    #board {
+      touch-action: none;
+      cursor: crosshair;
+      display: block;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    #auth-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.85);
+      z-index: 100;
+      justify-content: center;
+      align-items: center;
+    }
+    #auth-overlay.visible { display: flex; }
+    .auth-box {
+      background: #2a2a2a;
+      border-radius: 12px;
+      padding: 32px;
+      text-align: center;
+      color: #fff;
+      min-width: 280px;
+    }
+    .auth-box h2 { margin: 0 0 16px; font-size: 20px; }
+    .auth-box input {
+      width: 100%;
+      padding: 12px;
+      font-size: 24px;
+      text-align: center;
+      border: 2px solid #555;
+      border-radius: 8px;
+      background: #1a1a1a;
+      color: #fff;
+      letter-spacing: 8px;
+      margin-bottom: 16px;
+    }
+    .auth-box input:focus { border-color: #4a9eff; outline: none; }
+    .auth-box button {
+      width: 100%;
+      padding: 12px;
+      font-size: 16px;
+      border: none;
+      border-radius: 8px;
+      background: #4a9eff;
+      color: #fff;
+      cursor: pointer;
+    }
+    .auth-box button:active { background: #3a8eef; }
+    #status {
+      position: fixed;
+      top: 8px;
+      right: 8px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      z-index: 50;
+      opacity: 0.7;
+    }
+    #status.connected { background: #2d5a2d; color: #8f8; }
+    #status.disconnected { background: #5a2d2d; color: #f88; }
+  </style>
+</head>
+<body>
+  <canvas touch-action="none" id="board"></canvas>
+  <div id="status" class="disconnected">Disconnected</div>
+
+  <div id="auth-overlay">
+    <div class="auth-box">
+      <h2>Enter PIN</h2>
+      <input type="number" id="pin-input" maxlength="4" placeholder="PIN" inputmode="numeric" pattern="[0-9]*">
+      <button id="pin-submit">Connect</button>
+    </div>
+  </div>
+
+  <script src="/socket.io.min.js"></script>
+  <script>
+  'use strict';
+
+  // ── Board ─────────────────────────────────────────────────
+  const Board = (() => {
+    const resolution = 2;
+    let dom, ctx, domMem, ctxMem;
+    const bgColor = '#1f1f1f';
+    const pos = { x: 0, y: 0 };
+
+    function init(canvasId) {
+      dom = document.getElementById(canvasId);
+      ctx = dom.getContext('2d', { desynchronized: true });
+      ctx.imageSmoothingEnabled = true;
+
+      domMem = document.createElement('canvas');
+      ctxMem = domMem.getContext('2d');
+      ctxMem.fillStyle = bgColor;
+      ctxMem.fillRect(0, 0, domMem.width, domMem.height);
+
+      fitToWindow();
+      window.addEventListener('resize', fitToWindow);
+
+      if (localStorage.dataURL) {
+        const img = new Image();
+        img.addEventListener('load', function() {
+          domMem.width = img.width;
+          domMem.height = img.height;
+          ctxMem.drawImage(img, 0, 0);
+          ctx.drawImage(img, 0, 0);
+        });
+        img.src = localStorage.dataURL;
+      }
+    }
+
+    function fitToWindow() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      const wCanvas = w * resolution;
+      const hCanvas = h * resolution;
+
+      if (wCanvas > domMem.width || hCanvas > domMem.height) {
+        const buf = document.createElement('canvas');
+        const bufCtx = buf.getContext('2d');
+        buf.width = domMem.width;
+        buf.height = domMem.height;
+        bufCtx.fillStyle = bgColor;
+        bufCtx.fillRect(0, 0, wCanvas, hCanvas);
+        bufCtx.drawImage(dom, 0, 0);
+        if (domMem.width < wCanvas) domMem.width = wCanvas;
+        if (domMem.height < hCanvas) domMem.height = hCanvas;
+        ctxMem.drawImage(buf, 0, 0);
+      } else {
+        ctxMem.drawImage(dom, 0, 0);
+      }
+
+      dom.style.width = w + 'px';
+      dom.style.height = h + 'px';
+      dom.width = wCanvas;
+      dom.height = hCanvas;
+      ctx.fillStyle = bgColor;
+      ctx.fillRect(0, 0, dom.width, dom.height);
+      ctx.drawImage(domMem, 0, 0);
+
+      pos.x = dom.offsetLeft;
+      pos.y = dom.offsetTop;
+    }
+
+    function getPointerPos(e) {
+      return {
+        x: (e.pageX - pos.x) * resolution,
+        y: (e.pageY - pos.y) * resolution
+      };
+    }
+
+    function sendBoardSize() {
+      const wCanvas = window.innerWidth * resolution;
+      const hCanvas = window.innerHeight * resolution;
+      socket.emit('clientSize', { width: wCanvas, height: hCanvas });
+    }
+
+    function storeMemory() {
+      ctxMem.drawImage(dom, 0, 0);
+      try { localStorage.setItem('dataURL', domMem.toDataURL()); } catch(e) {}
+    }
+
+    return { init, getPointerPos, sendBoardSize, storeMemory, get dom() { return dom; }, get ctx() { return ctx; } };
+  })();
+
+  // ── Connection ────────────────────────────────────────────
+  const socket = io();
+  let isAuthenticated = false;
+  const statusEl = document.getElementById('status');
+  const authOverlay = document.getElementById('auth-overlay');
+  const pinInput = document.getElementById('pin-input');
+  const pinSubmit = document.getElementById('pin-submit');
+
+  function emitEvent(name, payload) {
+    if (!isAuthenticated) return;
+    socket.emit(name, payload);
+  }
+
+  socket.on('connect', () => {
+    statusEl.textContent = 'Connected';
+    statusEl.className = 'connected';
+    socket.emit('checkauthentication');
+  });
+
+  socket.on('disconnect', () => {
+    statusEl.textContent = 'Disconnected';
+    statusEl.className = 'disconnected';
+    isAuthenticated = false;
+  });
+
+  socket.on('authenticated', () => {
+    isAuthenticated = true;
+    authOverlay.classList.remove('visible');
+    Board.sendBoardSize();
+    window.addEventListener('resize', Board.sendBoardSize);
+  });
+
+  socket.on('needsauthentication', () => {
+    authOverlay.classList.add('visible');
+    pinInput.value = '';
+    pinInput.focus();
+  });
+
+  pinSubmit.addEventListener('click', () => {
+    socket.emit('authenticate', pinInput.value);
+  });
+  pinInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') socket.emit('authenticate', pinInput.value);
+  });
+
+  // Keep-alive
+  setInterval(() => socket.emit('ping'), 1000);
+
+  // ── Input Helpers ─────────────────────────────────────────
+  function checkErase(e) {
+    return e.buttons === 32 || (e.buttons === 1 && e.shiftKey);
+  }
+  function checkBarrel(e) {
+    return e.buttons === 2 || (e.buttons === 1 && e.ctrlKey);
+  }
+
+  // ── Pointer Events ────────────────────────────────────────
+  let isDown = false;
+  let lastBarrel = false;
+  let lastErase = false;
+  let storeTimeout = null;
+
+  Board.init('board');
+
+  Board.dom.addEventListener('pointerdown', (e) => {
+    const pos = Board.getPointerPos(e);
+    if (e.pointerType === 'touch') {
+      emitEvent('tdown', { id: e.pointerId, x: pos.x, y: pos.y });
+    } else {
+      emitEvent('down', {
+        x: pos.x, y: pos.y,
+        pressure: e.pressure,
+        erase: checkErase(e),
+        barrel: checkBarrel(e)
+      });
+      isDown = true;
+    }
+  });
+
+  Board.dom.addEventListener('pointermove', (e) => {
+    const pos = Board.getPointerPos(e);
+    if (isDown && e.pointerType !== 'touch') {
+      lastBarrel = checkBarrel(e);
+      lastErase = checkErase(e);
+      emitEvent('contact', {
+        ...pos,
+        pressure: e.pressure,
+        erase: lastErase,
+        barrel: lastBarrel,
+        tX: e.tiltX,
+        tY: e.tiltY
+      });
+    } else if (e.pointerType !== 'touch') {
+      emitEvent('hover', { ...pos, erase: false, barrel: lastBarrel });
+    } else {
+      emitEvent('tcontact', { ...pos, id: e.pointerId });
+    }
+  });
+
+  function pointerUp(e) {
+    const pos = Board.getPointerPos(e);
+    if (e.pointerType !== 'touch') {
+      emitEvent('up', { x: pos.x, y: pos.y });
+      isDown = false;
+    } else {
+      emitEvent('tup', { ...pos, id: e.pointerId });
+    }
+    // Debounce store
+    clearTimeout(storeTimeout);
+    storeTimeout = setTimeout(() => Board.storeMemory(), 1500);
+  }
+
+  Board.dom.addEventListener('pointerup', pointerUp);
+  Board.dom.addEventListener('pointerleave', pointerUp);
+  Board.dom.addEventListener('pointercancel', pointerUp);
+  Board.dom.addEventListener('contextmenu', e => e.preventDefault());
+  </script>
+</body>
+</html>

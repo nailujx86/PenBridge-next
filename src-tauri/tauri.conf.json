@@ -12,9 +12,9 @@
   "app": {
     "windows": [
       {
-        "title": "penbridge-tauri",
-        "width": 800,
-        "height": 600
+        "title": "PenBridge",
+        "width": 520,
+        "height": 680
       }
     ],
     "security": {
