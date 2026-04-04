@@ -72,6 +72,10 @@
       font-size: 12px;
       z-index: 50;
       opacity: 0.7;
+      pointer-events: none;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
     }
     #status.connected { background: #2d5a2d; color: #8f8; }
     #status.disconnected { background: #5a2d2d; color: #f88; }
@@ -186,10 +190,81 @@
   const authOverlay = document.getElementById('auth-overlay');
   const pinInput = document.getElementById('pin-input');
   const pinSubmit = document.getElementById('pin-submit');
+  const urlPin = new URLSearchParams(globalThis.location.search).get('pin')?.trim() || '';
+  let autoFullscreen = false;
+
+  function isFullscreenActive() {
+    return Boolean(
+      document.fullscreenElement ||
+      document.webkitFullscreenElement ||
+      document.msFullscreenElement
+    );
+  }
+
+  async function exitFullscreen() {
+    if (!isFullscreenActive()) return;
+
+    const leaveFullscreen =
+      document.exitFullscreen?.bind(document) ||
+      document.webkitExitFullscreen?.bind(document) ||
+      document.msExitFullscreen?.bind(document);
+
+    if (!leaveFullscreen) return;
+
+    try {
+      await leaveFullscreen();
+    } catch (_) {
+      // Ignore browsers that refuse programmatic exit.
+    }
+  }
+
+  async function ensureFullscreen() {
+    if (!autoFullscreen || isFullscreenActive()) return;
+    const root = document.documentElement;
+    const requestFullscreen =
+      root.requestFullscreen?.bind(root) ||
+      root.webkitRequestFullscreen?.bind(root) ||
+      root.msRequestFullscreen?.bind(root);
+
+    if (!requestFullscreen) return;
+
+    try {
+      await requestFullscreen();
+    } catch (_) {
+      // Browsers may require an explicit user gesture; we'll try again on the next interaction.
+    }
+  }
+
+  async function loadClientSettings() {
+    try {
+      const response = await fetch('/settings', { cache: 'no-store' });
+      if (!response.ok) return;
+      const settings = await response.json();
+      autoFullscreen = Boolean(settings?.auto_fullscreen);
+      if (autoFullscreen) {
+        ensureFullscreen();
+      }
+    } catch (_) {}
+  }
+
+  if (urlPin) {
+    pinInput.value = urlPin;
+  }
+
+  loadClientSettings();
+  document.addEventListener('pointerdown', () => {
+    ensureFullscreen();
+  }, { passive: true });
 
   function emitEvent(name, payload) {
     if (!isAuthenticated) return;
     socket.emit(name, payload);
+  }
+
+  function submitPin() {
+    const pin = pinInput.value.trim();
+    if (!pin) return;
+    socket.emit('authenticate', pin);
   }
 
   socket.on('connect', () => {
@@ -204,24 +279,46 @@
     isAuthenticated = false;
   });
 
+  socket.on('autoFullscreenChanged', (payload) => {
+    autoFullscreen = Boolean(payload?.enabled);
+    if (autoFullscreen) {
+      ensureFullscreen();
+    } else {
+      exitFullscreen();
+    }
+  });
+
+  socket.on('exitfullscreen', () => {
+    exitFullscreen();
+  });
+
   socket.on('authenticated', () => {
     isAuthenticated = true;
     authOverlay.classList.remove('visible');
+    ensureFullscreen();
     Board.sendBoardSize();
     window.addEventListener('resize', Board.sendBoardSize);
   });
 
   socket.on('needsauthentication', () => {
     authOverlay.classList.add('visible');
-    pinInput.value = '';
+    pinInput.value = urlPin || '';
+    if (urlPin) {
+      submitPin();
+      return;
+    }
     pinInput.focus();
   });
 
   pinSubmit.addEventListener('click', () => {
-    socket.emit('authenticate', pinInput.value);
+    ensureFullscreen();
+    submitPin();
   });
   pinInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') socket.emit('authenticate', pinInput.value);
+    if (e.key === 'Enter') {
+      ensureFullscreen();
+      submitPin();
+    }
   });
 
   // Keep-alive

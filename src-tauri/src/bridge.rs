@@ -20,6 +20,7 @@ pub struct Settings {
     pub needs_auth: bool,
     pub himetric: bool,
     pub touch_input: bool,
+    pub auto_fullscreen: bool,
     pub monitor_name: String,
 }
 
@@ -38,6 +39,7 @@ pub struct BridgeState {
     pub needs_auth: bool,
     pub himetric: bool,
     pub touch_input: bool,
+    pub auto_fullscreen: bool,
 
     // Monitor
     current_monitor: HMONITOR,
@@ -80,15 +82,18 @@ impl BridgeState {
 
         let url = format!("http://{}:{}", ip, port);
 
+        let pin = Some(rand::random_range(1111..=9999));
+
         Self {
             pen_device,
             touch_device,
             needs_auth: true,
             himetric: true,
             touch_input: true,
+            auto_fullscreen: true,
             current_monitor,
             authenticated: HashSet::new(),
-            pin: None,
+            pin,
             client_width: None,
             factor_x: 1.0,
             touch_contacts: HashMap::new(),
@@ -320,6 +325,7 @@ impl BridgeState {
             needs_auth: self.needs_auth,
             himetric: self.himetric,
             touch_input: self.touch_input,
+            auto_fullscreen: self.auto_fullscreen,
             monitor_name: self.get_monitor_info_string(),
         }
     }

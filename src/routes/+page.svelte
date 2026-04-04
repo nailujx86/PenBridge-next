@@ -1,7 +1,8 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
-  import QRCode from "qrcode";
+  import * as QRCode from "qrcode";
   import { onMount } from "svelte";
+  import "$lib/fluent";
 
   interface ServerInfo {
     ip: string;
@@ -13,28 +14,68 @@
     needs_auth: boolean;
     himetric: boolean;
     touch_input: boolean;
+    auto_fullscreen: boolean;
     monitor_name: string;
   }
+
+  const APP_VERSION = "v0.1.0";
 
   let serverInfo: ServerInfo | null = $state(null);
   let settings: Settings | null = $state(null);
   let pin: number | null = $state(null);
-  let qrDataUrl: string = $state("");
-  let pollInterval: ReturnType<typeof setInterval>;
+  let qrDataUrl = $state("");
+  let isLoading = $state(true);
+  let copyNotice = $state("");
+  let fullscreenNotice = $state("");
+  let pollInterval: ReturnType<typeof setInterval> | undefined;
 
-  async function loadState() {
-    serverInfo = await invoke<ServerInfo>("get_server_info");
-    settings = await invoke<Settings>("get_settings");
-    pin = await invoke<number | null>("get_pin");
+  function getConnectionUrl() {
+    if (!serverInfo) return "";
+    return settings?.needs_auth && pin != null
+      ? `${serverInfo.url}?pin=${pin}`
+      : serverInfo.url;
+  }
 
-    if (serverInfo) {
-      qrDataUrl = await QRCode.toDataURL(serverInfo.url, {
-        width: 200,
-        margin: 2,
-        color: { dark: "#000000", light: "#ffffff" },
-      });
+  async function loadState(isBackground = false) {
+    if (!isBackground) {
+      isLoading = true;
+    }
+
+    try {
+      const [nextServerInfo, nextSettings, nextPin] = await Promise.all([
+        invoke<ServerInfo>("get_server_info"),
+        invoke<Settings>("get_settings"),
+        invoke<number | null>("get_pin"),
+      ]);
+
+      serverInfo = nextServerInfo;
+      settings = nextSettings;
+      pin = nextPin;
+    } finally {
+      if (!isBackground) {
+        isLoading = false;
+      }
     }
   }
+
+  $effect(() => {
+    if (!serverInfo) {
+      qrDataUrl = "";
+      return;
+    }
+
+    QRCode.toDataURL(getConnectionUrl(), {
+      width: 220,
+      margin: 1,
+      color: { dark: "#0f172a", light: "#ffffff" },
+    })
+      .then((dataUrl) => {
+        qrDataUrl = dataUrl;
+      })
+      .catch(() => {
+        qrDataUrl = "";
+      });
+  });
 
   async function toggleAuth() {
     const newVal = await invoke<boolean>("toggle_auth");
@@ -51,278 +92,484 @@
     if (settings) settings = { ...settings, touch_input: newVal };
   }
 
+  async function toggleAutoFullscreen() {
+    const newVal = await invoke<boolean>("toggle_auto_fullscreen");
+    if (settings) settings = { ...settings, auto_fullscreen: newVal };
+  }
+
+  async function exitClientFullscreen() {
+    try {
+      await invoke("exit_client_fullscreen");
+      fullscreenNotice = "Exit full screen requested for connected devices.";
+    } catch {
+      fullscreenNotice = "Could not send the exit full screen request.";
+    }
+
+    setTimeout(() => {
+      fullscreenNotice = "";
+    }, 1800);
+  }
+
   async function switchMonitor() {
     const monitorName = await invoke<string>("switch_monitor");
     if (settings) settings = { ...settings, monitor_name: monitorName };
   }
 
-  async function refreshPin() {
-    pin = await invoke<number | null>("get_pin");
+  async function copyConnectionUrl() {
+    const url = getConnectionUrl();
+    if (!url) return;
+
+    try {
+      await navigator.clipboard.writeText(url);
+      copyNotice = "Connection URL copied.";
+    } catch {
+      copyNotice = "Copy failed. Please copy the URL manually.";
+    }
+
+    setTimeout(() => {
+      copyNotice = "";
+    }, 1800);
   }
 
   onMount(() => {
-    loadState();
-    pollInterval = setInterval(refreshPin, 2000);
-    return () => clearInterval(pollInterval);
+    void loadState();
+    pollInterval = setInterval(() => {
+      void loadState(true);
+    }, 5000);
+
+    return () => {
+      if (pollInterval) clearInterval(pollInterval);
+    };
   });
 </script>
 
-<main>
-  <div class="header">
-    <h1>PenBridge</h1>
-    <span class="version">v0.1.0</span>
-  </div>
+<svelte:head>
+  <title>PenBridge</title>
+  <meta name="color-scheme" content="light" />
+</svelte:head>
 
-  {#if serverInfo}
-    <div class="connection-section">
-      <div class="qr-container">
-        {#if qrDataUrl}
-          <img src={qrDataUrl} alt="QR Code" class="qr-code" />
-        {/if}
-      </div>
-
-      <div class="connection-info">
-        <p class="url">{serverInfo.url}</p>
-        <p class="hint">Scan the QR code or navigate to the URL above on your pen-enabled device.</p>
-      </div>
+<main class="shell">
+  <header class="app-header">
+    <div class="title-row">
+      <h1>PenBridge</h1>
+      <span class="version-chip">{APP_VERSION}</span>
     </div>
+  </header>
 
-    {#if settings}
-      <div class="settings-section">
-        <h2>Settings</h2>
-
-        <div class="toggle-row">
-          <div class="toggle-info">
-            <span class="toggle-label">Authentication</span>
-            <span class="toggle-desc">Require PIN to connect</span>
+  {#if serverInfo && settings}
+    <div class="dashboard-grid">
+      <fluent-card class="panel connection-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Connection</h2>
+            <p>Scan the QR code or open the session URL on your client device.</p>
           </div>
-          <button
-            class="toggle-btn"
-            class:active={settings.needs_auth}
-            onclick={toggleAuth}
-          >
-            {settings.needs_auth ? "ON" : "OFF"}
-          </button>
+          <fluent-badge appearance={settings.needs_auth ? "accent" : "lightweight"}>
+            {settings.needs_auth ? "PIN required" : "Open access"}
+          </fluent-badge>
         </div>
 
-        {#if settings.needs_auth && pin}
-          <div class="pin-display">
-            Current PIN: <span class="pin-value">{pin}</span>
+        <div class="qr-layout">
+          <div class="qr-frame">
+            {#if qrDataUrl}
+              <img src={qrDataUrl} alt="QR code for PenBridge session" class="qr-code" />
+            {:else}
+              <div class="qr-placeholder">Generating QR…</div>
+            {/if}
+          </div>
+
+          <div class="connection-meta">
+            <div>
+              <div class="eyebrow">Session URL</div>
+              <div class="url">{serverInfo.url}</div>
+              <p class="muted">Host {serverInfo.ip}:{serverInfo.port}</p>
+            </div>
+
+            <div class="button-row">
+              <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+              <fluent-button role="button" tabindex="0" appearance="accent" onclick={copyConnectionUrl}>
+                Copy URL
+              </fluent-button>
+            </div>
+
+            {#if copyNotice}
+              <p class="inline-note">{copyNotice}</p>
+            {/if}
+          </div>
+        </div>
+
+        {#if settings.needs_auth}
+          <div class="pin-strip">
+            <span>Current PIN</span>
+            <strong>{pin ?? "— — — —"}</strong>
           </div>
         {/if}
+      </fluent-card>
 
-        <div class="toggle-row">
-          <div class="toggle-info">
-            <span class="toggle-label">HiMetric Input</span>
-            <span class="toggle-desc">Higher precision on supported devices</span>
+      <fluent-card class="panel settings-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Preferences</h2>
           </div>
-          <button
-            class="toggle-btn"
-            class:active={settings.himetric}
-            onclick={toggleHimetric}
-          >
-            {settings.himetric ? "ON" : "OFF"}
-          </button>
         </div>
 
-        <div class="toggle-row">
-          <div class="toggle-info">
-            <span class="toggle-label">Touch Input</span>
-            <span class="toggle-desc">Accept multi-touch from clients</span>
+        <div class="setting-list">
+          <div class="setting-row">
+            <div class="setting-copy">
+              <div class="setting-title">Authentication</div>
+              <div class="setting-description">
+                Require a short PIN before clients can join the session.
+              </div>
+            </div>
+            <fluent-switch checked={settings.needs_auth} onchange={toggleAuth}>
+              Authentication
+            </fluent-switch>
           </div>
-          <button
-            class="toggle-btn"
-            class:active={settings.touch_input}
-            onclick={toggleTouch}
-          >
-            {settings.touch_input ? "ON" : "OFF"}
-          </button>
-        </div>
 
-        <div class="toggle-row">
-          <div class="toggle-info">
-            <span class="toggle-label">Target Monitor</span>
-            <span class="toggle-desc">{settings.monitor_name}</span>
+          <fluent-divider></fluent-divider>
+
+          <div class="setting-row">
+            <div class="setting-copy">
+              <div class="setting-title">HiMetric input</div>
+              <div class="setting-description">
+                Use higher-precision coordinate input on supported hardware.
+              </div>
+            </div>
+            <fluent-switch checked={settings.himetric} onchange={toggleHimetric}>
+              HiMetric input
+            </fluent-switch>
           </div>
-          <button class="action-btn" onclick={switchMonitor}>
-            Switch to Current
-          </button>
+
+          <fluent-divider></fluent-divider>
+
+          <div class="setting-row">
+            <div class="setting-copy">
+              <div class="setting-title">Touch input</div>
+              <div class="setting-description">
+                Allow multi-touch gestures from connected client devices.
+              </div>
+            </div>
+            <fluent-switch checked={settings.touch_input} onchange={toggleTouch}>
+              Touch input
+            </fluent-switch>
+          </div>
+
+          <fluent-divider></fluent-divider>
+
+          <div class="setting-row">
+            <div class="setting-copy">
+              <div class="setting-title">Auto full screen</div>
+              <div class="setting-description">
+                Ask the web client to enter full screen after connecting or on the first tap.
+              </div>
+              {#if fullscreenNotice}
+                <p class="inline-note">{fullscreenNotice}</p>
+              {/if}
+            </div>
+            <div class="setting-actions">
+              <fluent-switch checked={settings.auto_fullscreen} onchange={toggleAutoFullscreen}>
+                Auto full screen
+              </fluent-switch>
+              <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+              <fluent-button role="button" tabindex="0" appearance="outline" onclick={exitClientFullscreen}>
+                Exit full screen
+              </fluent-button>
+            </div>
+          </div>
+
+          <fluent-divider></fluent-divider>
+
+          <div class="setting-row monitor-row">
+            <div class="setting-copy">
+              <div class="setting-title">Target monitor</div>
+              <div class="setting-description">{settings.monitor_name}</div>
+            </div>
+            <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+            <fluent-button role="button" tabindex="0" appearance="outline" onclick={switchMonitor}>
+              Use current monitor
+            </fluent-button>
+          </div>
         </div>
-      </div>
-    {/if}
+      </fluent-card>
+    </div>
   {:else}
-    <div class="loading">Starting server...</div>
+    <fluent-card class="loading-panel">
+      <fluent-progress-ring></fluent-progress-ring>
+      <div>
+        <h2>Starting PenBridge</h2>
+        <p>{isLoading ? "Loading bridge state…" : "Waiting for the server to respond…"}</p>
+      </div>
+    </fluent-card>
   {/if}
 </main>
 
 <style>
+  :global(html, body) {
+    margin: 0;
+    min-height: 100%;
+    background: linear-gradient(180deg, #f7f7f8 0%, #eef1f5 100%);
+    color: #1b1a19;
+    font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+  }
+
   :global(body) {
-    margin: 0;
-    background-color: #1a1a2e;
-    color: #eee;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh;
   }
 
-  main {
-    max-width: 480px;
+  :global(fluent-card),
+  :global(fluent-button),
+  :global(fluent-switch),
+  :global(fluent-badge) {
+    font-family: inherit;
+  }
+
+  :global(fluent-badge) {
+    width: fit-content;
+  }
+
+  .shell {
+    max-width: 1040px;
     margin: 0 auto;
-    padding: 24px 20px;
+    padding: 24px 18px 32px;
   }
 
-  .header {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    margin-bottom: 24px;
-  }
-
-  h1 {
-    margin: 0;
-    font-size: 28px;
-    font-weight: 700;
-    color: #e0e0ff;
-  }
-
-  .version {
-    font-size: 14px;
-    color: #666;
-  }
-
-  .connection-section {
-    background: #16213e;
-    border-radius: 12px;
-    padding: 24px;
-    text-align: center;
-    margin-bottom: 20px;
-  }
-
-  .qr-container {
+  .app-header {
     margin-bottom: 16px;
   }
 
+  .title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  h1,
+  h2,
+  p {
+    margin: 0;
+  }
+
+  h1 {
+    font-size: clamp(2rem, 3.5vw, 2.4rem);
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    font-weight: 700;
+    color: #1b1a19;
+  }
+
+  .version-chip {
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: rgba(15, 108, 189, 0.12);
+    color: #0f6cbd;
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .dashboard-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+    gap: 16px;
+  }
+
+  .panel,
+  .loading-panel {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.86), rgba(248, 250, 252, 0.96));
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 16px;
+    padding: 18px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+    backdrop-filter: blur(18px);
+    color: #1b1a19;
+  }
+
+  .panel-heading {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: flex-start;
+    margin-bottom: 16px;
+  }
+
+  .panel-heading h2 {
+    font-size: 1.08rem;
+    margin-bottom: 4px;
+    color: #201f1e;
+  }
+
+  .panel-heading p,
+  .setting-description,
+  .muted,
+  .status-note,
+  .inline-note,
+  .loading-panel p {
+    color: #605e5c;
+  }
+
+  .qr-layout {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: 18px;
+    align-items: center;
+  }
+
+  .qr-frame {
+    background: #ffffff;
+    border: 1px solid #e1dfdd;
+    border-radius: 14px;
+    min-height: 220px;
+    display: grid;
+    place-items: center;
+    padding: 12px;
+  }
+
   .qr-code {
-    border-radius: 8px;
+    width: 100%;
+    max-width: 220px;
+    border-radius: 10px;
     image-rendering: pixelated;
   }
 
+  .qr-placeholder {
+    color: #605e5c;
+    font-size: 0.95rem;
+  }
+
+  .connection-meta {
+    display: grid;
+    gap: 14px;
+  }
+
+  .eyebrow {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #605e5c;
+    margin-bottom: 6px;
+  }
+
   .url {
-    font-size: 18px;
+    font-size: 1.02rem;
     font-weight: 600;
-    color: #4a9eff;
-    margin: 0 0 8px;
     word-break: break-all;
+    color: #0f6cbd;
   }
 
-  .hint {
-    font-size: 13px;
-    color: #888;
-    margin: 0;
-    line-height: 1.4;
+  .muted,
+  .status-note,
+  .inline-note {
+    font-size: 0.9rem;
   }
 
-  .settings-section {
-    background: #16213e;
-    border-radius: 12px;
-    padding: 20px;
+  .status-note {
+    margin-top: 6px;
   }
 
-  h2 {
-    margin: 0 0 16px;
-    font-size: 18px;
-    font-weight: 600;
-    color: #c0c0ff;
-  }
-
-  .toggle-row {
+  .button-row {
     display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
     align-items: center;
-    justify-content: space-between;
-    padding: 12px 0;
-    border-bottom: 1px solid #1f2b47;
   }
 
-  .toggle-row:last-child {
-    border-bottom: none;
-  }
-
-  .toggle-info {
+  .pin-strip {
+    margin-top: 16px;
     display: flex;
-    flex-direction: column;
-    gap: 2px;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 16px;
+    border-radius: 12px;
+    background: #eff6fc;
+    border: 1px solid #c7e0f4;
   }
 
-  .toggle-label {
-    font-size: 15px;
-    font-weight: 500;
+  .pin-strip span {
+    color: #605e5c;
   }
 
-  .toggle-desc {
-    font-size: 12px;
-    color: #777;
+  .pin-strip strong {
+    font-size: 1.25rem;
+    letter-spacing: 0.28em;
+    color: #0f6cbd;
   }
 
-  .toggle-btn {
-    min-width: 56px;
-    padding: 6px 14px;
-    border: 2px solid #333;
-    border-radius: 6px;
-    background: #2a2a3e;
-    color: #999;
-    font-size: 13px;
+  .setting-list {
+    display: grid;
+    gap: 12px;
+  }
+
+  .setting-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: center;
+  }
+
+  .setting-copy {
+    display: grid;
+    gap: 4px;
+  }
+
+  .setting-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
+  .setting-title {
     font-weight: 600;
-    cursor: pointer;
-    transition: all 0.15s;
+    color: #201f1e;
   }
 
-  .toggle-btn.active {
-    background: #1a4a1a;
-    border-color: #2d7a2d;
-    color: #8f8;
+  .setting-description {
+    font-size: 0.92rem;
+    line-height: 1.45;
   }
 
-  .toggle-btn:hover {
-    border-color: #555;
+  .monitor-row {
+    align-items: flex-start;
   }
 
-  .action-btn {
-    padding: 6px 14px;
-    border: 2px solid #333;
-    border-radius: 6px;
-    background: #2a2a3e;
-    color: #aaa;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.15s;
-    white-space: nowrap;
+  .loading-panel {
+    min-height: 160px;
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    justify-content: center;
+    text-align: left;
   }
 
-  .action-btn:hover {
-    background: #3a3a5e;
-    border-color: #555;
-    color: #ddd;
+  @media (max-width: 820px) {
+    .dashboard-grid,
+    .qr-layout {
+      grid-template-columns: 1fr;
+    }
   }
 
-  .pin-display {
-    background: #1a2a4e;
-    border-radius: 8px;
-    padding: 10px 16px;
-    margin: 8px 0 4px;
-    font-size: 14px;
-    color: #aaa;
-  }
+  @media (max-width: 640px) {
+    .shell {
+      padding-inline: 12px;
+    }
 
-  .pin-value {
-    font-size: 20px;
-    font-weight: 700;
-    color: #ffa;
-    letter-spacing: 4px;
-  }
+    .panel-heading,
+    .setting-row {
+      flex-direction: column;
+      align-items: stretch;
+    }
 
-  .loading {
-    text-align: center;
-    padding: 60px 0;
-    color: #666;
-    font-size: 16px;
+    .button-row,
+    .setting-actions {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .pin-strip {
+      gap: 8px;
+      flex-direction: column;
+      align-items: flex-start;
+    }
   }
 </style>

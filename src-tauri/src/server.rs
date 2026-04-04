@@ -1,6 +1,8 @@
+use axum::extract::State;
 use axum::http::header;
 use axum::response::{Html, IntoResponse};
 use axum::routing::get;
+use axum::Json;
 use socketioxide::extract::{Data, SocketRef};
 use socketioxide::socket::DisconnectReason;
 use socketioxide::SocketIo;
@@ -21,6 +23,11 @@ async fn serve_socket_io_js() -> impl IntoResponse {
         [(header::CONTENT_TYPE, "application/javascript")],
         SOCKET_IO_CLIENT_JS,
     )
+}
+
+async fn serve_settings(State(state): State<SharedBridgeState>) -> Json<crate::bridge::Settings> {
+    let st = state.lock().await;
+    Json(st.get_settings())
 }
 
 pub fn create_router(state: SharedBridgeState) -> (axum::Router, SocketIo) {
@@ -177,7 +184,7 @@ pub fn create_router(state: SharedBridgeState) -> (axum::Router, SocketIo) {
                             s.emit("authenticated", &()).ok();
                         } else {
                             s.emit("needsauthentication", &()).ok();
-                            let pin = st.generate_pin();
+                            let pin = st.pin.unwrap_or_else(|| st.generate_pin());
                             log::info!("PIN for connecting client: {}", pin);
                         }
                     }
@@ -233,20 +240,25 @@ pub fn create_router(state: SharedBridgeState) -> (axum::Router, SocketIo) {
 
     let app = axum::Router::new()
         .route("/", get(serve_client))
+        .route("/settings", get(serve_settings))
         .route("/vendor/socket.io.min.js", get(serve_socket_io_js))
+        .with_state(state)
         .layer(layer)
         .layer(CorsLayer::permissive());
 
     (app, io)
 }
 
-pub async fn start_server(state: SharedBridgeState) {
-    let port = state.lock().await.server_info.port;
-    let (app, _io) = create_router(state);
-
+pub async fn serve_router(app: axum::Router, port: u16) {
     let addr = format!("0.0.0.0:{}", port);
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     log::info!("Server listening on {}", addr);
 
     axum::serve(listener, app).await.unwrap();
+}
+
+pub async fn start_server(state: SharedBridgeState) {
+    let port = state.lock().await.server_info.port;
+    let (app, _io) = create_router(state);
+    serve_router(app, port).await;
 }

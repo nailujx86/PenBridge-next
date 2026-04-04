@@ -34,12 +34,26 @@ async fn main() {
 
     // Start socket.io / web server in background
     let server_state = bridge_state.clone();
+    let (server_app, socket_io) = penbridge_tauri_lib::server::create_router(server_state);
     tokio::spawn(async move {
-        penbridge_tauri_lib::server::start_server(server_state).await;
+        penbridge_tauri_lib::server::serve_router(server_app, port).await;
+    });
+
+    // Rotate PIN every 30 seconds when authentication is enabled
+    let pin_state = bridge_state.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            let mut st = pin_state.lock().await;
+            if st.needs_auth {
+                let pin = st.generate_pin();
+                log::info!("PIN rotated: {}", pin);
+            }
+        }
     });
 
     println!("PenBridge server running at http://{}:{}", ip, port);
 
     // Run Tauri app (blocks)
-    penbridge_tauri_lib::run(bridge_state);
+    penbridge_tauri_lib::run(bridge_state, socket_io);
 }
