@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use axum::extract::State;
 use axum::http::header;
 use axum::response::{Html, IntoResponse};
@@ -31,7 +33,8 @@ async fn serve_settings(State(state): State<SharedBridgeState>) -> Json<crate::b
 }
 
 pub fn create_router(state: SharedBridgeState) -> (axum::Router, SocketIo) {
-    let (layer, io) = SocketIo::new_layer();
+    let (layer, io) = SocketIo::builder()
+        .build_layer();
 
     let bridge_state = state.clone();
     io.ns("/", move |s: SocketRef| {

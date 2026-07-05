@@ -20,7 +20,7 @@
     monitor_name: string;
   }
 
-  const APP_VERSION = "v0.1.0";
+  const APP_VERSION = "v1.0.0";
 
   let serverInfo: ServerInfo | null = $state(null);
   let settings: Settings | null = $state(null);
@@ -135,6 +135,10 @@
   async function switchMonitor() {
     const monitorName = await invoke<string>("switch_monitor");
     if (settings) settings = { ...settings, monitor_name: monitorName };
+  }
+
+  async function launchOldPenbridge() {
+    await invoke("launch_old_penbridge");
   }
 
   async function copyConnectionUrl() {
@@ -310,6 +314,21 @@
             <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
             <fluent-button role="button" tabindex="0" appearance="outline" onclick={switchMonitor}>
               Use current monitor
+            </fluent-button>
+          </div>
+
+          <fluent-divider></fluent-divider>
+
+          <div class="setting-row">
+            <div class="setting-copy">
+              <div class="setting-title">Launch old PenBridge</div>
+              <div class="setting-description">
+                If you encounter problems, switch back to the legacy application.
+              </div>
+            </div>
+            <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+            <fluent-button role="button" tabindex="0" appearance="outline" onclick={launchOldPenbridge}>
+              Launch
             </fluent-button>
           </div>
         </div>

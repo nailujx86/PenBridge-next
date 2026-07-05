@@ -21,6 +21,35 @@ fn show_main_window(app: &tauri::AppHandle) {
 }
 
 #[tauri::command]
+async fn launch_old_penbridge(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let resource_dir = app_handle
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+    let bridge_path = resource_dir.join("bridge.exe");
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const DETACHED_PROCESS: u32 = 0x00000008;
+        std::process::Command::new(&bridge_path)
+            .creation_flags(DETACHED_PROCESS)
+            .spawn()
+            .map_err(|e| format!("Failed to launch old PenBridge: {}", e))?;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::process::Command::new(&bridge_path)
+            .spawn()
+            .map_err(|e| format!("Failed to launch old PenBridge: {}", e))?;
+    }
+
+    app_handle.exit(0);
+
+    Ok(())
+}
+
+#[tauri::command]
 async fn get_server_info(state: tauri::State<'_, SharedBridgeState>) -> Result<ServerInfo, String> {
     let st = state.lock().await;
     Ok(st.server_info.clone())
@@ -150,10 +179,14 @@ pub fn run(bridge_state: SharedBridgeState, socket_io: SocketIo) {
 
             Ok(())
         })
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main_window(app);
+        }))
         .plugin(tauri_plugin_opener::init())
         .manage(bridge_state)
         .manage(socket_io)
         .invoke_handler(tauri::generate_handler![
+            launch_old_penbridge,
             get_server_info,
             get_settings,
             toggle_auth,
