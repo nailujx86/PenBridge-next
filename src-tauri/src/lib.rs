@@ -9,6 +9,8 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, WindowEvent,
 };
+use windows::core::BOOL;
+use windows::Win32::Graphics::Dwm::DwmGetColorizationColor;
 
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
@@ -96,6 +98,22 @@ async fn get_pin(state: tauri::State<'_, SharedBridgeState>) -> Result<Option<u3
     Ok(st.pin)
 }
 
+#[tauri::command]
+fn get_system_accent_color() -> Result<String, String> {
+    unsafe {
+        let mut colorization_color = 0u32;
+        let mut opaque_blend = BOOL::from(false);
+        DwmGetColorizationColor(&mut colorization_color, &mut opaque_blend)
+            .map_err(|err| err.to_string())?;
+
+        let r = (colorization_color & 0xFF) as u8;
+        let g = ((colorization_color >> 8) & 0xFF) as u8;
+        let b = ((colorization_color >> 16) & 0xFF) as u8;
+
+        Ok(format!("#{:02x}{:02x}{:02x}", r, g, b))
+    }
+}
+
 pub fn run(bridge_state: SharedBridgeState, socket_io: SocketIo) {
     tauri::Builder::default()
         .setup(|app| {
@@ -145,6 +163,7 @@ pub fn run(bridge_state: SharedBridgeState, socket_io: SocketIo) {
             exit_client_fullscreen,
             switch_monitor,
             get_pin,
+            get_system_accent_color,
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {

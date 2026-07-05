@@ -7,6 +7,7 @@ use win32pointer_rs::pointers::{self, devicestates, pointerstates, PenContact, T
 use windows::Win32::Graphics::Gdi::HMONITOR;
 
 use serde::Serialize;
+use windows::Win32::UI::Input::Pointer::POINTER_FLAG_SECONDBUTTON;
 
 #[derive(Serialize, Clone)]
 pub struct ServerInfo {
@@ -167,11 +168,12 @@ impl BridgeState {
         };
 
         let (sx, sy) = self.scale_coords(x, y);
+        log::trace!("[INJECT] PEN_DOWN at x={}, y={} (scaled: {}, {}), pressure={}", x, y, sx, sy, pressure);
         let mut pointer_flags = pointerstates::pen::PEN_DOWN.0;
         let pen_flags = if erase {
             devicestates::Pen::PenEraser
         } else if barrel {
-            pointer_flags |= 0x00000020; // POINTER_FLAG_SECONDBUTTON
+            pointer_flags |= POINTER_FLAG_SECONDBUTTON.0;
             devicestates::Pen::PenBarrel
         } else {
             devicestates::Pen::PenDefault
@@ -188,6 +190,7 @@ impl BridgeState {
         };
 
         let (sx, sy) = self.scale_coords(x, y);
+        log::trace!("[INJECT] PEN_UP at x={}, y={} (scaled: {}, {})", x, y, sx, sy);
         let contact = PenContact::new(
             sx, sy, 0,
             devicestates::Pen::PenDefault,
@@ -203,11 +206,12 @@ impl BridgeState {
         };
 
         let (sx, sy) = self.scale_coords(x, y);
+        log::trace!("[INJECT] PEN_HOVER at x={}, y={} (scaled: {}, {})", x, y, sx, sy);
         let mut pointer_flags = pointerstates::pen::PEN_HOVER.0;
         let pen_flags = if erase {
             devicestates::Pen::PenInverted
         } else if barrel {
-            pointer_flags |= 0x00000020; // POINTER_FLAG_SECONDBUTTON
+            pointer_flags |= POINTER_FLAG_SECONDBUTTON.0;
             devicestates::Pen::PenBarrel
         } else {
             devicestates::Pen::PenDefault
@@ -227,12 +231,13 @@ impl BridgeState {
         };
 
         let (sx, sy) = self.scale_coords(x, y);
+        log::trace!("[INJECT] PEN_CONTACT at x={}, y={} (scaled: {}, {}), pressure={}", x, y, sx, sy, pressure);
         // The original uses TOUCH_CONTACT flags for pen contact (continuous movement)
         let mut pointer_flags = pointerstates::pen::PEN_CONTACT.0;
         let pen_flags = if erase {
             devicestates::Pen::PenEraser
         } else if barrel {
-            pointer_flags |= 0x00000020; // POINTER_FLAG_SECONDBUTTON
+            pointer_flags |= POINTER_FLAG_SECONDBUTTON.0;
             devicestates::Pen::PenBarrel
         } else {
             devicestates::Pen::PenDefault

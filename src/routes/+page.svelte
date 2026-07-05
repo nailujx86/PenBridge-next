@@ -3,6 +3,8 @@
   import * as QRCode from "qrcode";
   import { onMount } from "svelte";
   import "$lib/fluent";
+  import { accentBaseColor, SwatchRGB } from "@fluentui/web-components";
+  import { parseColorHexRGB } from "@microsoft/fast-colors";
 
   interface ServerInfo {
     ip: string;
@@ -54,6 +56,26 @@
     } finally {
       if (!isBackground) {
         isLoading = false;
+      }
+    }
+  }
+
+  async function loadSystemAccentColor() {
+    try {
+      const color = await invoke<string>("get_system_accent_color");
+      const hexWithoutHash = color.startsWith("#") ? color.slice(1) : color;
+      const rgbColor = parseColorHexRGB(hexWithoutHash);
+      if (rgbColor) {
+        accentBaseColor.withDefault(SwatchRGB.from(rgbColor));
+        accentBaseColor.setValueFor(document.documentElement, SwatchRGB.from(rgbColor));
+      }
+    } catch {
+      const rgbColor = parseColorHexRGB("0f6cbd");
+      if (rgbColor) {
+        accentBaseColor.withDefault(SwatchRGB.from(rgbColor));
+        
+        accentBaseColor.setValueFor(document.documentElement, SwatchRGB.from(rgbColor));
+        
       }
     }
   }
@@ -132,6 +154,7 @@
   }
 
   onMount(() => {
+    void loadSystemAccentColor();
     void loadState();
     pollInterval = setInterval(() => {
       void loadState(true);
@@ -310,6 +333,8 @@
     background: linear-gradient(180deg, #f7f7f8 0%, #eef1f5 100%);
     color: #1b1a19;
     font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    --system-accent: #0f6cbd;
+    --accent-base-color: #0f6cbd;
   }
 
   :global(body) {
@@ -362,9 +387,16 @@
     padding: 3px 10px;
     border-radius: 999px;
     background: rgba(15, 108, 189, 0.12);
-    color: #0f6cbd;
+    color: var(--system-accent);
     font-size: 0.85rem;
     font-weight: 600;
+  }
+
+  .url {
+    font-size: 1.02rem;
+    font-weight: 600;
+    word-break: break-all;
+    color: var(--system-accent);
   }
 
   .dashboard-grid {
@@ -447,13 +479,6 @@
     letter-spacing: 0.08em;
     color: #605e5c;
     margin-bottom: 6px;
-  }
-
-  .url {
-    font-size: 1.02rem;
-    font-weight: 600;
-    word-break: break-all;
-    color: #0f6cbd;
   }
 
   .muted,

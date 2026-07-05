@@ -45,6 +45,7 @@ pub fn create_router(state: SharedBridgeState) -> (axum::Router, SocketIo) {
                 s.on("down", move |_s: SocketRef, Data::<serde_json::Value>(data)| {
                     let state = state.clone();
                     async move {
+                        log::trace!("[SERVER] 'down' event received: x={}, y={}, pressure={}", data["x"], data["y"], data["pressure"]);
                         let st = state.lock().await;
                         if !st.is_authenticated(&_s.id.to_string()) { return; }
                         let x = data["x"].as_f64().unwrap_or(0.0);
@@ -63,6 +64,7 @@ pub fn create_router(state: SharedBridgeState) -> (axum::Router, SocketIo) {
                 s.on("up", move |_s: SocketRef, Data::<serde_json::Value>(data)| {
                     let state = state.clone();
                     async move {
+                        log::trace!("[SERVER] 'up' event received: x={}, y={}", data["x"], data["y"]);
                         let st = state.lock().await;
                         if !st.is_authenticated(&_s.id.to_string()) { return; }
                         let x = data["x"].as_f64().unwrap_or(0.0);
@@ -78,6 +80,7 @@ pub fn create_router(state: SharedBridgeState) -> (axum::Router, SocketIo) {
                 s.on("hover", move |_s: SocketRef, Data::<serde_json::Value>(data)| {
                     let state = state.clone();
                     async move {
+                        log::trace!("[SERVER] 'hover' event received: x={}, y={}, erase={}, barrel={}", data["x"], data["y"], data["erase"], data["barrel"]);
                         let st = state.lock().await;
                         if !st.is_authenticated(&_s.id.to_string()) { return; }
                         let x = data["x"].as_f64().unwrap_or(0.0);
@@ -95,6 +98,7 @@ pub fn create_router(state: SharedBridgeState) -> (axum::Router, SocketIo) {
                 s.on("contact", move |_s: SocketRef, Data::<serde_json::Value>(data)| {
                     let state = state.clone();
                     async move {
+                        log::trace!("[SERVER] 'contact' event received: x={}, y={}, pressure={}", data["x"], data["y"], data["pressure"]);
                         let st = state.lock().await;
                         if !st.is_authenticated(&_s.id.to_string()) { return; }
                         let x = data["x"].as_f64().unwrap_or(0.0);

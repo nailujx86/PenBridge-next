@@ -337,6 +337,7 @@
   let lastBarrel = false;
   let lastErase = false;
   let storeTimeout = null;
+  let pendingDown = null;
 
   Board.init('board');
 
@@ -345,12 +346,15 @@
     if (e.pointerType === 'touch') {
       emitEvent('tdown', { id: e.pointerId, x: pos.x, y: pos.y });
     } else {
-      emitEvent('down', {
-        x: pos.x, y: pos.y,
+      // Store the down event but defer it until first movement
+      // This merges the down+contact so they appear as a single point
+      pendingDown = {
         pressure: e.pressure,
         erase: checkErase(e),
         barrel: checkBarrel(e)
-      });
+      };
+      lastBarrel = pendingDown.barrel;
+      lastErase = pendingDown.erase;
       isDown = true;
     }
   });
@@ -358,6 +362,14 @@
   Board.dom.addEventListener('pointermove', (e) => {
     const pos = Board.getPointerPos(e);
     if (isDown && e.pointerType !== 'touch') {
+      // If we have a pending down, emit it first at this position
+      if (pendingDown) {
+        emitEvent('down', {
+          x: pos.x, y: pos.y,
+          ...pendingDown
+        });
+        pendingDown = null;
+      }
       lastBarrel = checkBarrel(e);
       lastErase = checkErase(e);
       emitEvent('contact', {
@@ -378,8 +390,11 @@
   function pointerUp(e) {
     const pos = Board.getPointerPos(e);
     if (e.pointerType !== 'touch') {
-      emitEvent('up', { x: pos.x, y: pos.y });
-      isDown = false;
+      // Only send 'up' if we were actually down (not just hovering)
+      if (isDown) {
+        emitEvent('up', { x: pos.x, y: pos.y });
+        isDown = false;
+      }
     } else {
       emitEvent('tup', { ...pos, id: e.pointerId });
     }
@@ -389,7 +404,12 @@
   }
 
   Board.dom.addEventListener('pointerup', pointerUp);
-  Board.dom.addEventListener('pointerleave', pointerUp);
+  // Only handle pointerleave for touch events, not pen
+  Board.dom.addEventListener('pointerleave', (e) => {
+    if (e.pointerType === 'touch') {
+      pointerUp(e);
+    }
+  });
   Board.dom.addEventListener('pointercancel', pointerUp);
   Board.dom.addEventListener('contextmenu', e => e.preventDefault());
   </script>
