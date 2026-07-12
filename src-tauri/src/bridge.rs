@@ -22,6 +22,7 @@ pub struct Settings {
     pub himetric: bool,
     pub touch_input: bool,
     pub auto_fullscreen: bool,
+    pub y_scaling: bool,
     pub monitor_name: String,
 }
 
@@ -51,7 +52,10 @@ pub struct BridgeState {
 
     // Calibration
     client_width: Option<f64>,
+    client_height: Option<f64>,
     pub factor_x: f64,
+    pub factor_y: f64,
+    y_scaling: bool,
 
     // Touch state
     touch_contacts: HashMap<u32, ActiveTouch>,
@@ -96,7 +100,10 @@ impl BridgeState {
             authenticated: HashSet::new(),
             pin,
             client_width: None,
+            client_height: None,
             factor_x: 1.0,
+            factor_y: 1.0,
+            y_scaling: false,
             touch_contacts: HashMap::new(),
             first_touch_id: None,
             server_info: ServerInfo { ip, port, url },
@@ -122,17 +129,19 @@ impl BridgeState {
     }
 
     pub fn recalculate_calibration_factor(&mut self) {
-        if let Some(client_width) = self.client_width {
+        if let (Some(client_width), Some(client_height)) = (self.client_width, self.client_height) {
             if let Ok(pos) = monitors::get_monitor_position(self.current_monitor) {
-                let scale = monitors::get_monitor_scaling(self.current_monitor).unwrap_or(1.0);
                 let monitor_width = (pos.2 - pos.0) as f64;
-                self.factor_x = (monitor_width / client_width) * scale;
+                let monitor_height = (pos.3 - pos.1) as f64;
+                self.factor_x = monitor_width / client_width;
+                self.factor_y = monitor_height / client_height;
             }
         }
     }
 
-    pub fn set_client_width(&mut self, width: f64) {
+    pub fn set_client_size(&mut self, width: f64, height: f64) {
         self.client_width = Some(width);
+        self.client_height = Some(height);
         self.recalculate_calibration_factor();
     }
 
@@ -157,7 +166,8 @@ impl BridgeState {
     }
 
     fn scale_coords(&self, x: f64, y: f64) -> (i32, i32) {
-        ((x * self.factor_x) as i32, (y * self.factor_x) as i32)
+        let y_factor = if self.y_scaling { self.factor_y } else { self.factor_x };
+        ((x * self.factor_x) as i32, (y * y_factor) as i32)
     }
 
     // Pen injection methods
@@ -325,12 +335,18 @@ impl BridgeState {
         }
     }
 
+    pub fn toggle_y_scaling(&mut self) -> bool {
+        self.y_scaling = !self.y_scaling;
+        self.y_scaling
+    }
+
     pub fn get_settings(&self) -> Settings {
         Settings {
             needs_auth: self.needs_auth,
             himetric: self.himetric,
             touch_input: self.touch_input,
             auto_fullscreen: self.auto_fullscreen,
+            y_scaling: self.y_scaling,
             monitor_name: self.get_monitor_info_string(),
         }
     }

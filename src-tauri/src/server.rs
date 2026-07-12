@@ -172,9 +172,9 @@ pub fn create_router(state: SharedBridgeState) -> (axum::Router, SocketIo) {
                     async move {
                         let mut st = state.lock().await;
                         if !st.is_authenticated(&_s.id.to_string()) { return; }
-                        if let Some(width) = data["width"].as_f64() {
-                            st.set_client_width(width);
-                            log::info!("Client size change. New factor: {}", st.factor_x);
+                        if let (Some(width), Some(height)) = (data["width"].as_f64(), data["height"].as_f64()) {
+                            st.set_client_size(width, height);
+                            log::info!("Client size change. New factors: x={}, y={}", st.factor_x, st.factor_y);
                         }
                     }
                 });

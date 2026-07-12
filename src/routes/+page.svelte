@@ -17,6 +17,7 @@
     himetric: boolean;
     touch_input: boolean;
     auto_fullscreen: boolean;
+    y_scaling: boolean;
     monitor_name: string;
   }
 
@@ -117,6 +118,11 @@
   async function toggleAutoFullscreen() {
     const newVal = await invoke<boolean>("toggle_auto_fullscreen");
     if (settings) settings = { ...settings, auto_fullscreen: newVal };
+  }
+
+  async function toggleYScaling() {
+    const newVal = await invoke<boolean>("toggle_y_scaling");
+    if (settings) settings = { ...settings, y_scaling: newVal };
   }
 
   async function exitClientFullscreen() {
@@ -278,6 +284,21 @@
             </div>
             <fluent-switch checked={settings.touch_input} onchange={toggleTouch}>
               Touch input
+            </fluent-switch>
+          </div>
+
+          <fluent-divider></fluent-divider>
+
+          <div class="setting-row">
+            <div class="setting-copy">
+              <div class="setting-title">Y-axis scaling</div>
+              <div class="setting-description">
+                Scale Y coordinates independently to fit the monitor height. Useful when the
+                client device has a narrower (taller) aspect ratio than the target monitor.
+              </div>
+            </div>
+            <fluent-switch checked={settings.y_scaling} onchange={toggleYScaling}>
+              Y-axis scaling
             </fluent-switch>
           </div>
 

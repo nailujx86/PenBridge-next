@@ -107,6 +107,12 @@ async fn toggle_auto_fullscreen(
 }
 
 #[tauri::command]
+async fn toggle_y_scaling(state: tauri::State<'_, SharedBridgeState>) -> Result<bool, String> {
+    let mut st = state.lock().await;
+    Ok(st.toggle_y_scaling())
+}
+
+#[tauri::command]
 async fn exit_client_fullscreen(io: tauri::State<'_, SocketIo>) -> Result<(), String> {
     if let Err(err) = io.emit("exitfullscreen", &()).await {
         log::warn!("Failed to send exit fullscreen request: {err}");
@@ -193,6 +199,7 @@ pub fn run(bridge_state: SharedBridgeState, socket_io: SocketIo) {
             toggle_himetric,
             toggle_touch,
             toggle_auto_fullscreen,
+            toggle_y_scaling,
             exit_client_fullscreen,
             switch_monitor,
             get_pin,
