@@ -64,19 +64,16 @@
   async function loadSystemAccentColor() {
     try {
       const color = await invoke<string>("get_system_accent_color");
-      const hexWithoutHash = color.startsWith("#") ? color.slice(1) : color;
-      const rgbColor = parseColorHexRGB(hexWithoutHash);
+      const rgbColor = parseColorHexRGB(color);
       if (rgbColor) {
-        accentBaseColor.withDefault(SwatchRGB.from(rgbColor));
-        accentBaseColor.setValueFor(document.documentElement, SwatchRGB.from(rgbColor));
+        accentBaseColor.setValueFor(document.body, SwatchRGB.from(rgbColor));
+        document.body.style.setProperty('--system-accent', color);
       }
     } catch {
-      const rgbColor = parseColorHexRGB("0f6cbd");
+      const rgbColor = parseColorHexRGB("#0f6cbd");
       if (rgbColor) {
-        accentBaseColor.withDefault(SwatchRGB.from(rgbColor));
-        
-        accentBaseColor.setValueFor(document.documentElement, SwatchRGB.from(rgbColor));
-        
+        accentBaseColor.setValueFor(document.body, SwatchRGB.from(rgbColor));
+        document.body.style.setProperty('--system-accent', '#0f6cbd');
       }
     }
   }
@@ -374,7 +371,6 @@
     color: #1b1a19;
     font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
     --system-accent: #0f6cbd;
-    --accent-base-color: #0f6cbd;
   }
 
   :global(body) {
@@ -426,7 +422,7 @@
   .version-chip {
     padding: 3px 10px;
     border-radius: 999px;
-    background: rgba(15, 108, 189, 0.12);
+    background: color-mix(in srgb, var(--system-accent) 12%, transparent);
     color: var(--system-accent);
     font-size: 0.85rem;
     font-weight: 600;
@@ -545,8 +541,8 @@
     align-items: center;
     padding: 14px 16px;
     border-radius: 12px;
-    background: #eff6fc;
-    border: 1px solid #c7e0f4;
+    background: color-mix(in srgb, var(--system-accent) 5%, transparent);
+    border: 1px solid color-mix(in srgb, var(--system-accent) 15%, transparent);
   }
 
   .pin-strip span {
@@ -556,7 +552,7 @@
   .pin-strip strong {
     font-size: 1.25rem;
     letter-spacing: 0.28em;
-    color: #0f6cbd;
+    color: var(--system-accent);
   }
 
   .setting-list {
