@@ -71,8 +71,22 @@ unsafe impl Sync for BridgeState {}
 
 pub type SharedBridgeState = Arc<Mutex<BridgeState>>;
 
+fn get_local_ip() -> String {
+    std::net::UdpSocket::bind("0.0.0.0:0")
+        .and_then(|sock| {
+            sock.connect("8.8.8.8:1")?;
+            let addr = sock.local_addr()?;
+            Ok(addr.ip().to_string())
+        })
+        .unwrap_or_else(|_| {
+            local_ip_address::local_ip()
+                .map(|ip| ip.to_string())
+                .unwrap_or_else(|_| "127.0.0.1".to_string())
+        })
+}
+
 impl BridgeState {
-    pub fn new(ip: String, port: u16) -> Self {
+    pub fn new(port: u16) -> Self {
         let pen_device = pointers::create_pen().ok();
         let touch_device = pointers::create_touch().ok();
 
@@ -85,6 +99,7 @@ impl BridgeState {
 
         let current_monitor = monitors::get_primary_monitor();
 
+        let ip = get_local_ip();
         let url = format!("http://{}:{}", ip, port);
 
         let pin = Some(rand::random_range(1111..=9999));
@@ -126,6 +141,18 @@ impl BridgeState {
         let pin = rand::random_range(1111..=9999);
         self.pin = Some(pin);
         pin
+    }
+
+    pub fn update_ip(&mut self) -> bool {
+        let ip = get_local_ip();
+        if self.server_info.ip != ip {
+            let url = format!("http://{}:{}", ip, self.server_info.port);
+            self.server_info = ServerInfo { ip, port: self.server_info.port, url };
+            log::info!("Network changed, new IP: {}", self.server_info.url);
+            true
+        } else {
+            false
+        }
     }
 
     pub fn recalculate_calibration_factor(&mut self) {
